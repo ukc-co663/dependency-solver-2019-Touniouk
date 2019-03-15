@@ -224,7 +224,7 @@ public class Main {
         }
 //        System.out.println(installedPackages);
         StringBuilder strBld = new StringBuilder("[\n");
-        installedPackages.forEach(p -> strBld.append("+").append(p.name).append("=").append(p.version).append(",\n"));
+        installedPackages.forEach(p -> strBld.append("\"+").append(p.name).append("=").append(p.version).append("\",\n"));
         System.out.println(strBld.delete(strBld.length()-2, strBld.length()-1).append("]").toString());
     }
 
@@ -249,10 +249,15 @@ public class Main {
         // if it does, add the first non-tried one to the stack
         else {
             latestPack = pack;
-            pack.prerequisite.stream().filter(d -> !d.hasBeenTried).findFirst().ifPresent(d -> {
-                packagesToInstall.addAll(d.packList);
-                d.hasBeenTried = true;
-            });
+            Optional<Dependency> untriedDep = pack.prerequisite.stream().filter(d -> !d.hasBeenTried).findFirst();
+            if (untriedDep.isPresent()) {
+                // Check for circular dependency (we need to install a package that's already in the stack)
+                if (Collections.disjoint(packagesToInstall, untriedDep.get().packList)) packagesToInstall.addAll(untriedDep.get().packList);
+                untriedDep.get().hasBeenTried = true;
+            } else {
+                // We've tried every dependency for this package
+                packagesToInstall.pop();
+            }
         }
     }
 
@@ -265,7 +270,7 @@ public class Main {
     private void cantInstall(Pack pack) {
         latestPack.packagesInstalledForIt.forEach(this::unInstall);
         latestPack.packagesInstalledForIt.clear();
-        // Since the dependency failed op all the other packages in this dependency
+        // Since the dependency failed pop all the other packages in this dependency
         while (packagesToInstall.peek() != latestPack) packagesToInstall.pop();
     }
 
