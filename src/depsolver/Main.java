@@ -88,7 +88,7 @@ public class Main {
                 repoMap.get(pack.getName()).get(pack.getVersion()).conflicts.addAll(new ArrayList<>(findMatchingPackagesInMap(str)));
             }
         }
-        System.out.println(repoMap);
+//        System.out.println(repoMap);
     }
 
     /*
@@ -217,14 +217,15 @@ public class Main {
                 }
             }
         }
-        System.out.println("HERE");
         // Depth first search (probably)
         latestPack = packagesToInstall.peek();
         while (packagesToInstall.size() != 0) {
             checkInstall(packagesToInstall.peek());
         }
-
-        System.out.println(installedPackages);
+//        System.out.println(installedPackages);
+        StringBuilder strBld = new StringBuilder("[\n");
+        installedPackages.forEach(p -> strBld.append("+").append(p.name).append("=").append(p.version).append(",\n"));
+        System.out.println(strBld.delete(strBld.length()-2, strBld.length()-1).append("]").toString());
     }
 
     private void checkInstall(Pack pack) {
@@ -272,55 +273,6 @@ public class Main {
         installedPackages.remove(pack);
         pack.hasBeenInstalled(false);
     }
-
-//    private List<Package> findMatchingPackages(String str) {
-//        List<Package> matchingPackages = new ArrayList<>();
-//
-//        if (str.contains(">=")) {
-//            String[] split = str.split(">=");
-//            for (Package pack : repo) {
-//                if (pack.getName().equals(split[0]) && compareVersions(pack.getVersion(), ">=", split[1])) {
-//                    matchingPackages.add(pack);
-//                }
-//            }
-//        } else if (str.contains("<=")) {
-//            String[] split = str.split("<=");
-//            for (Package pack : repo) {
-//                if (pack.getName().equals(split[0]) && compareVersions(pack.getVersion(), "<=", split[1])) {
-//                    matchingPackages.add(pack);
-//                }
-//            }
-//        } else if (str.contains("=")) {
-//            String[] split = str.split("=");
-//            for (Package pack : repo) {
-//                if (pack.getName().equals(split[0]) && pack.getVersion().equals(split[1])) {
-//                    matchingPackages.add(pack);
-//                    break;
-//                }
-//            }
-//        } else if (str.contains(">")) {
-//            String[] split = str.split(">");
-//            for (Package pack : repo) {
-//                if (pack.getName().equals(split[0]) && compareVersions(pack.getVersion(), ">", split[1])) {
-//                    matchingPackages.add(pack);
-//                }
-//            }
-//        } else if (str.contains("<")) {
-//            String[] split = str.split("<");
-//            for (Package pack : repo) {
-//                if (pack.getName().equals(split[0]) && compareVersions(pack.getVersion(), "<", split[1])) {
-//                    matchingPackages.add(pack);
-//                }
-//            }
-//        } else {
-//            for (Package pack : repo) {
-//                if (pack.getName().equals(str)) {
-//                    matchingPackages.add(pack);
-//                }
-//            }
-//        }
-//        return matchingPackages;
-//    }
 
     private boolean compareVersions(String pack1VerStr, String comparator, String pack2VerStr) {
         String res = compareVersions(pack1VerStr, pack2VerStr);
