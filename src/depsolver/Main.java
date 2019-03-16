@@ -33,45 +33,47 @@ class Package {
 
 public class Main {
 
-    private List<Package> repo;
     private List<String> initial;
     private List<String> constraints;
     private HashMap<String, HashMap<String, Pack>> repoMap;
     private Stack<Pack> packagesToInstall;
     private Stack<Pack> installedPackages;
     private Pack latestPack;
+    private final int uninstallCost = 1000000;
 
     /*
     Accessor function
      */
     public static void main(String[] args) throws IOException {
         Main main = new Main();
-        main.createRepo(args);
-        main.makeHashMapRepo();
+        List<Package> repo = main.createRepo(args);
+        main.makeHashMapRepo(repo);
         main.start();
     }
 
     /*
     Creates all the Packages and puts them in repo
+    Also parses the other files
      */
-    private void createRepo(String[] args) throws IOException {
+    private List<Package> createRepo(String[] args) throws IOException {
         TypeReference<List<Package>> repoType = new TypeReference<List<Package>>() {};
-        repo = JSON.parseObject(readFile(args[0]), repoType);
+        List<Package> repo = JSON.parseObject(readFile(args[0]), repoType);
         TypeReference<List<String>> strListType = new TypeReference<List<String>>() {};
         initial = JSON.parseObject(readFile(args[1]), strListType);
         constraints = JSON.parseObject(readFile(args[2]), strListType);
+        return repo;
     }
 
     /*
     Makes the repo into a HashMap format where we can easily look up packages
      */
-    private void makeHashMapRepo() {
+    private void makeHashMapRepo(List<Package> repo) {
         repoMap = new HashMap<>();
         for (Package pack : repo) {
             // Check if this pack exists (any version)
             repoMap.computeIfAbsent(pack.getName(), k -> new HashMap<>());
             // Check if the specific version exists
-            repoMap.get(pack.getName()).computeIfAbsent(pack.getVersion(), k -> new Pack(pack.getName(), pack.getVersion()));
+            repoMap.get(pack.getName()).computeIfAbsent(pack.getVersion(), k -> new Pack(pack.getName(), pack.getVersion(), pack.getSize()));
         }
         // Add the dependencies and conflicts
         for (Package pack : repo) {
@@ -139,59 +141,6 @@ public class Main {
     }
 
     /*
-    Given an expression such as "A>=3", finds all the matching packages in the repo
-    Does involve going through the entire repo every time tho
-     */
-    private List<Package> findMatchingPackages(String str) {
-        List<Package> matchingPackages = new ArrayList<>();
-
-        if (str.contains(">=")) {
-            String[] split = str.split(">=");
-            for (Package pack : repo) {
-                if (pack.getName().equals(split[0]) && compareVersions(pack.getVersion(), ">=", split[1])) {
-                    matchingPackages.add(pack);
-                }
-            }
-        } else if (str.contains("<=")) {
-            String[] split = str.split("<=");
-            for (Package pack : repo) {
-                if (pack.getName().equals(split[0]) && compareVersions(pack.getVersion(), "<=", split[1])) {
-                    matchingPackages.add(pack);
-                }
-            }
-        } else if (str.contains("=")) {
-            String[] split = str.split("=");
-            for (Package pack : repo) {
-                if (pack.getName().equals(split[0]) && pack.getVersion().equals(split[1])) {
-                    matchingPackages.add(pack);
-                    break;
-                }
-            }
-        } else if (str.contains(">")) {
-            String[] split = str.split(">");
-            for (Package pack : repo) {
-                if (pack.getName().equals(split[0]) && compareVersions(pack.getVersion(), ">", split[1])) {
-                    matchingPackages.add(pack);
-                }
-            }
-        } else if (str.contains("<")) {
-            String[] split = str.split("<");
-            for (Package pack : repo) {
-                if (pack.getName().equals(split[0]) && compareVersions(pack.getVersion(), "<", split[1])) {
-                    matchingPackages.add(pack);
-                }
-            }
-        } else {
-            for (Package pack : repo) {
-                if (pack.getName().equals(str)) {
-                    matchingPackages.add(pack);
-                }
-            }
-        }
-        return matchingPackages;
-    }
-
-    /*
     Used to create the repo, reads the entire file
      */
     private String readFile(String filename) throws IOException {
@@ -207,55 +156,43 @@ public class Main {
     public void start() {
         packagesToInstall = new Stack<>();
         installedPackages = new Stack<>();
+        List<Solution> solutions = new ArrayList<>();
+        Solution bestSolution = null;
 
+        // Make the constraints into a list of dependencies
         List<List<Pack>> constraintsList = new ArrayList<>();
-        List<Pack> placeHolder;
-        for (String str : constraints) {
-            if (str.startsWith("+")) {
-                placeHolder = new ArrayList<>();
-                for (Package pack : findMatchingPackages(str.substring(1))) {
-                    placeHolder.add(repoMap.get(pack.getName()).get(pack.getVersion()));
-                }
-                constraintsList.add(placeHolder);
-            }
-        }
+        constraints.stream()
+                .filter(c -> c.startsWith("+"))
+                .forEach(c -> constraintsList.add(new ArrayList<>(findMatchingPackagesInMap(c.substring(1)))));
         List<Dependency> constraintsDependency = makeIntoOrList(null, constraintsList);
-//        for (Dependency dep : constraintsDependency) System.out.println(dep.packList);
 
-        for (Dependency dep : constraintsDependency) {
-//            System.out.println("First dependency to try: " + dep.packList);
-            dep.packList.forEach(p -> p.hasToBeInstalled = true);
+        // Try to find a solution for every constraint combination and keep the best
+        for (int i = 0; i < constraintsDependency.size(); i++) {
+            Dependency dep = constraintsDependency.get(i);
             packagesToInstall.addAll(dep.packList);
             latestPack = packagesToInstall.peek();
             while (packagesToInstall.size() != 0) {
-                checkInstall(packagesToInstall.peek());
+                checkInstall(packagesToInstall.peek(), i);
             }
-            break;
+            // Check if this solution is valid and has a better cost than the previous one
+            if (installedPackages.containsAll(dep.packList)) {
+                Solution sol = getSolutionFromPackageList();
+                if (bestSolution == null || sol.cost < bestSolution.cost) bestSolution = sol;
+                solutions.add(sol);
+            }
+            // Clear installedPackages for other solutions
+            installedPackages.forEach(p -> p.isInstalled = false);
+            installedPackages.clear();
         }
 
-        // Building the result json string
-        StringBuilder resultString = new StringBuilder("[\n");
-        // Go through the initial state and see what we can't have
-        for (String str : initial) {
-            // Get the corresponding package
-            String[] split = str.split("=");
-            Pack pack = repoMap.get(split[0]).get(split[1]);
-            // Check if there's any conflict with installed packages
-            if (
-                    // Check if it conflicts with anything already installed
-                    pack.conflicts.stream().anyMatch(p -> p.isInstalled) ||
-                    // Check if anything already installed conflicts with it
-                    installedPackages.stream().anyMatch(installedPack -> installedPack.conflicts.stream().anyMatch(p -> p == pack))
-            ) {
-                resultString.append("\"-").append(str).append("\",\n");
-            }
-        }
-        // Add the packages to install
-        installedPackages.forEach(p -> resultString.append("\"+").append(p.name).append("=").append(p.version).append("\",\n"));
-        System.out.println(resultString.delete(resultString.length()-2, resultString.length()-1).append("]").toString());
+        assert bestSolution != null;
+        System.out.println(bestSolution.jsonSolution);
     }
 
-    private void checkInstall(Pack pack) {
+    /*
+    Tries to install the package at the top of the stack of packages to install
+     */
+    private void checkInstall(Pack pack, int currentIteration) {
         // Check if it's installed already, if it is, remove it from the stack
         if (pack.isInstalled) {
             packagesToInstall.pop();
@@ -279,11 +216,11 @@ public class Main {
         }
         // if it does, add the first non-tried one to the stack
         latestPack = pack;
-        Optional<Dependency> untriedDep = pack.prerequisite.stream().filter(d -> !d.hasBeenTried).findFirst();
+        Optional<Dependency> untriedDep = pack.prerequisite.stream().filter(d -> d.hasBeenTried != currentIteration).findFirst();
         if (untriedDep.isPresent()) {
             // Check for circular dependency (we need to install a package that's already in the stack)
             if (Collections.disjoint(packagesToInstall, untriedDep.get().packList)) packagesToInstall.addAll(untriedDep.get().packList);
-            untriedDep.get().hasBeenTried = true;
+            untriedDep.get().hasBeenTried = currentIteration;
         } else {
             // We've tried every dependency for this package
             pack.allDependenciesTried = true;
@@ -300,13 +237,49 @@ public class Main {
     private void cantInstall(Pack pack) {
         latestPack.packagesInstalledForIt.forEach(this::unInstall);
         latestPack.packagesInstalledForIt.clear();
-        // Since the dependency failed pop all the other packages in this dependency
+        // Since the dependency failed, pop all the other packages in this dependency
         while (packagesToInstall.peek() != latestPack) packagesToInstall.pop();
     }
 
     private void unInstall(Pack pack) {
         installedPackages.remove(pack);
         pack.isInstalled = false;
+    }
+
+    /*
+    Creates the json String from the list of packages
+    Takes into account the initial state
+    calculates the cost
+     */
+    private Solution getSolutionFromPackageList() {
+        // Building the result json string
+        long cost = 0L;
+        StringBuilder resultString = new StringBuilder("[\n");
+        // Go through the initial state and see what we can't have
+        for (String str : initial) {
+            // Get the corresponding package
+            String[] split = str.split("=");
+            Pack pack = repoMap.get(split[0]).get(split[1]);
+            // Check if there's any conflict with installed packages
+            if (
+                // Check if it conflicts with anything already installed
+                pack.conflicts.stream().anyMatch(p -> p.isInstalled) ||
+                // Check if anything already installed conflicts with it
+                installedPackages.stream().anyMatch(installedPack -> installedPack.conflicts.stream().anyMatch(p -> p == pack))
+            ) {
+                // Uninstall the package before anything else
+                resultString.append("\"-").append(str).append("\",\n");
+                cost += uninstallCost;
+            }
+            // Check if we need to install it
+            installedPackages.remove(pack);
+        }
+        // Add the packages to install
+        for (Pack p : installedPackages) {
+            resultString.append("\"+").append(p.name).append("=").append(p.version).append("\",\n");
+            cost += p.size;
+        }
+        return new Solution(cost, resultString.delete(resultString.length()-2, resultString.length()-1).append("]").toString());
     }
 
     private boolean compareVersions(String pack1VerStr, String comparator, String pack2VerStr) {
@@ -340,21 +313,24 @@ public class Main {
         return "=";
     }
 
+    /*
+    A Package class that links directly to the other packages
+     */
     private class Pack {
 
         String name;
         String version;
+        long size;
         List<Dependency> prerequisite;
         List<Pack> conflicts;
         List<Pack> packagesInstalledForIt; // List of packages installed in order to install this one
         boolean isInstalled = false; // Used to check conflicts
-        boolean hasToBeInstalled = false; // Absolutely has to be installed, no other way around it
         boolean allDependenciesTried = false;
-        boolean calculateAllPathsDone = false;
 
-        private Pack(String name, String version) {
+        private Pack(String name, String version, int size) {
             this.name = name;
             this.version = version;
+            this.size = size;
             prerequisite = new ArrayList<>();
             conflicts = new ArrayList<>();
             packagesInstalledForIt = new ArrayList<>();
@@ -373,12 +349,12 @@ public class Main {
      */
     private class Dependency {
         private List<Pack> packList;
-        boolean hasBeenTried; // keeping track of whether or not we tried this dependency already
+//        boolean hasBeenTried = false; // keeping track of whether or not we tried this dependency already
+        int hasBeenTried = -1;
         Pack belongsTo;
 
         private Dependency(Pack parentPack, Pack... packs) {
             belongsTo = parentPack;
-            hasBeenTried = false;
             packList = new ArrayList<>(Arrays.asList(packs));
         }
 
@@ -395,6 +371,19 @@ public class Main {
 
         private void add(Pack pack) {
             packList.add(pack);
+        }
+    }
+
+    /*
+    Just a way to keep the solution and its cost associated
+     */
+    private class Solution {
+        long cost;
+        String jsonSolution;
+
+        private Solution(long cost, String jsonSolution) {
+            this.cost = cost;
+            this.jsonSolution = jsonSolution;
         }
     }
 }
