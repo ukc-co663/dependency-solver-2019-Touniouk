@@ -208,24 +208,51 @@ public class Main {
         packagesToInstall = new Stack<>();
         installedPackages = new Stack<>();
 
-        // TODO: Consider the initial state
-
+        List<List<Pack>> constraintsList = new ArrayList<>();
+        List<Pack> placeHolder;
         for (String str : constraints) {
             if (str.startsWith("+")) {
+                placeHolder = new ArrayList<>();
                 for (Package pack : findMatchingPackages(str.substring(1))) {
-                    packagesToInstall.add(repoMap.get(pack.getName()).get(pack.getVersion()));
+                    placeHolder.add(repoMap.get(pack.getName()).get(pack.getVersion()));
                 }
+                constraintsList.add(placeHolder);
             }
         }
-        // Depth first search (probably)
-        latestPack = packagesToInstall.peek();
-        while (packagesToInstall.size() != 0) {
-            checkInstall(packagesToInstall.peek());
+        List<Dependency> constraintsDependency = makeIntoOrList(null, constraintsList);
+//        for (Dependency dep : constraintsDependency) System.out.println(dep.packList);
+
+        for (Dependency dep : constraintsDependency) {
+            System.out.println("First dependency to try: " + dep.packList);
+            dep.packList.forEach(p -> p.hasToBeInstalled = true);
+            packagesToInstall.addAll(dep.packList);
+            latestPack = packagesToInstall.peek();
+            while (packagesToInstall.size() != 0) {
+                checkInstall(packagesToInstall.peek());
+            }
+            break;
         }
-//        System.out.println(installedPackages);
-        StringBuilder strBld = new StringBuilder("[\n");
-        installedPackages.forEach(p -> strBld.append("\"+").append(p.name).append("=").append(p.version).append("\",\n"));
-        System.out.println(strBld.delete(strBld.length()-2, strBld.length()-1).append("]").toString());
+
+        // Building the result json string
+        StringBuilder resultString = new StringBuilder("[\n");
+        // Go through the initial state and see what we can't have
+        for (String str : initial) {
+            // Get the corresponding package
+            String[] split = str.split("=");
+            Pack pack = repoMap.get(split[0]).get(split[1]);
+            // Check if there's any conflict with installed packages
+            if (
+                    // Check if it conflicts with anything already installed
+                    pack.conflicts.stream().anyMatch(p -> p.isInstalled) ||
+                    // Check if anything already installed conflicts with it
+                    installedPackages.stream().anyMatch(installedPack -> installedPack.conflicts.stream().anyMatch(p -> p == pack))
+            ) {
+                resultString.append("\"-").append(str).append("\",\n");
+            }
+        }
+        // Add the packages to install
+        installedPackages.forEach(p -> resultString.append("\"+").append(p.name).append("=").append(p.version).append("\",\n"));
+        System.out.println(resultString.delete(resultString.length()-2, resultString.length()-1).append("]").toString());
     }
 
     private void checkInstall(Pack pack) {
@@ -245,26 +272,29 @@ public class Main {
             return;
         }
         // Check if this package has any uninstalled dependencies, if it doesn't, install it
-        if (pack.prerequisite.size() == 0 || pack.prerequisite.stream().anyMatch(Dependency::checkIfSatisfied)) installPackage(packagesToInstall.pop());
+        if (pack.prerequisite.size() == 0 || pack.prerequisite.stream().anyMatch(Dependency::checkIfSatisfied)) {
+            if (pack.prerequisite.size() == 0) pack.allDependenciesTried = true;
+            installPackage(packagesToInstall.pop());
+            return;
+        }
         // if it does, add the first non-tried one to the stack
-        else {
-            latestPack = pack;
-            Optional<Dependency> untriedDep = pack.prerequisite.stream().filter(d -> !d.hasBeenTried).findFirst();
-            if (untriedDep.isPresent()) {
-                // Check for circular dependency (we need to install a package that's already in the stack)
-                if (Collections.disjoint(packagesToInstall, untriedDep.get().packList)) packagesToInstall.addAll(untriedDep.get().packList);
-                untriedDep.get().hasBeenTried = true;
-            } else {
-                // We've tried every dependency for this package
-                packagesToInstall.pop();
-            }
+        latestPack = pack;
+        Optional<Dependency> untriedDep = pack.prerequisite.stream().filter(d -> !d.hasBeenTried).findFirst();
+        if (untriedDep.isPresent()) {
+            // Check for circular dependency (we need to install a package that's already in the stack)
+            if (Collections.disjoint(packagesToInstall, untriedDep.get().packList)) packagesToInstall.addAll(untriedDep.get().packList);
+            untriedDep.get().hasBeenTried = true;
+        } else {
+            // We've tried every dependency for this package
+            pack.allDependenciesTried = true;
+            packagesToInstall.pop();
         }
     }
 
     private void installPackage(Pack pack) {
         latestPack.packagesInstalledForIt.add(pack);
         installedPackages.add(pack);
-        pack.hasBeenInstalled(true);
+        pack.isInstalled = true;
     }
 
     private void cantInstall(Pack pack) {
@@ -276,7 +306,7 @@ public class Main {
 
     private void unInstall(Pack pack) {
         installedPackages.remove(pack);
-        pack.hasBeenInstalled(false);
+        pack.isInstalled = false;
     }
 
     private boolean compareVersions(String pack1VerStr, String comparator, String pack2VerStr) {
@@ -316,11 +346,11 @@ public class Main {
         String version;
         List<Dependency> prerequisite;
         List<Pack> conflicts;
-//        List<Dependency> isInDependency; // Dependency that has this package in it, when this package is installed, the dep is satisfied
         List<Pack> packagesInstalledForIt; // List of packages installed in order to install this one
-        boolean hasBeenTried;
-        boolean isInstalled; // Used to check conflicts
-        boolean hasToBeInstalled; // Absolutely has to be installed, no other way around it
+        boolean isInstalled = false; // Used to check conflicts
+        boolean hasToBeInstalled = false; // Absolutely has to be installed, no other way around it
+        boolean allDependenciesTried = false;
+        boolean calculateAllPathsDone = false;
 
         private Pack(String name, String version) {
             this.name = name;
@@ -328,20 +358,11 @@ public class Main {
             prerequisite = new ArrayList<>();
             conflicts = new ArrayList<>();
             packagesInstalledForIt = new ArrayList<>();
-//            isInDependency = new ArrayList<>();
-            hasBeenTried = false;
-            isInstalled = false;
-            hasToBeInstalled = false;
         }
 
         @Override
         public String toString() {
-            return "[" + name + "=" + version + "]";
-        }
-
-        private void hasBeenInstalled(boolean flag) {
-            isInstalled = flag;
-//            isInDependency.forEach(d -> d.isSatisfied = true);
+            return "(" + name + "=" + version + ")";
         }
     }
 
@@ -353,13 +374,11 @@ public class Main {
     private class Dependency {
         private List<Pack> packList;
         boolean hasBeenTried; // keeping track of whether or not we tried this dependency already
-//        boolean isSatisfied; // If one of the packages in the packList has been installed
         Pack belongsTo;
 
         private Dependency(Pack parentPack, Pack... packs) {
             belongsTo = parentPack;
             hasBeenTried = false;
-//            for (Pack pack : packs) pack.isInDependency.add(this);
             packList = new ArrayList<>(Arrays.asList(packs));
         }
 
@@ -367,7 +386,6 @@ public class Main {
             Dependency dep = new Dependency(belongsTo);
             dep.packList = new ArrayList<>(packList);
             dep.hasBeenTried = hasBeenTried;
-//            dep.isSatisfied = isSatisfied;
             return dep;
         }
 
