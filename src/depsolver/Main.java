@@ -350,7 +350,7 @@ public class Main {
     private class Dependency {
         private List<Pack> packList;
 //        boolean hasBeenTried = false; // keeping track of whether or not we tried this dependency already
-        int hasBeenTried = -1;
+        int hasBeenTried = -1; // Has been tried is a number so that I don't have to recursively reset it after trying one set of constraints
         Pack belongsTo;
 
         private Dependency(Pack parentPack, Pack... packs) {
