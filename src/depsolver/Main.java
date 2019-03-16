@@ -161,6 +161,7 @@ public class Main {
     public void start() {
         packagesToInstall = new Stack<>();
         installedPackages = new Stack<>();
+        List<Pack> packagesToUninstall = new ArrayList<>();
         Solution bestSolution = null;
 
         // Make the constraints into a list of dependencies
@@ -188,7 +189,17 @@ public class Main {
             installedPackages.clear();
         }
 
+        // Forgot about negative packages until now so I;m just adding this i a hurry
+        constraints.stream()
+                .filter(c -> c.startsWith("-"))
+                .forEach(c -> packagesToUninstall.addAll(findMatchingPackagesInMap(c.substring(1))));
         assert bestSolution != null;
+        StringBuilder strBld = new StringBuilder(bestSolution.jsonSolution);
+        packagesToUninstall.forEach(p -> {
+            strBld.insert(strBld.length()-2, ",\n\"-" + p.name + "=" + p.version + "\"");
+        });
+        bestSolution.jsonSolution = strBld.toString();
+
         System.out.println(bestSolution.jsonSolution);
     }
 
