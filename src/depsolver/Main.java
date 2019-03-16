@@ -85,6 +85,10 @@ public class Main {
                 prerequisite.add(deps);
             }
             repoMap.get(pack.getName()).get(pack.getVersion()).prerequisite = makeIntoOrList(prerequisite);
+            // Add conflicts
+            for (String str : pack.getConflicts()) {
+                repoMap.get(pack.getName()).get(pack.getVersion()).conflicts.addAll(new ArrayList<>(findMatchingPackagesInMap(str)));
+            }
         }
 //        System.out.println(repoMap);
     }
