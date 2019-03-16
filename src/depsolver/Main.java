@@ -223,7 +223,7 @@ public class Main {
 //        for (Dependency dep : constraintsDependency) System.out.println(dep.packList);
 
         for (Dependency dep : constraintsDependency) {
-            System.out.println("First dependency to try: " + dep.packList);
+//            System.out.println("First dependency to try: " + dep.packList);
             dep.packList.forEach(p -> p.hasToBeInstalled = true);
             packagesToInstall.addAll(dep.packList);
             latestPack = packagesToInstall.peek();
