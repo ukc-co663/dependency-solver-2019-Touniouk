@@ -27,7 +27,7 @@ class Package {
 
     @Override
     public String toString() {
-        return "[" + name + "=" + version + "]";
+        return "(" + name + "=" + version + ")";
     }
 }
 
@@ -84,11 +84,7 @@ public class Main {
                 list.forEach(str -> deps.addAll(new ArrayList<>(findMatchingPackagesInMap(str))));
                 prerequisite.add(deps);
             }
-            repoMap.get(pack.getName()).get(pack.getVersion()).prerequisite = makeIntoOrList(repoMap.get(pack.getName()).get(pack.getVersion()), prerequisite);
-            // Add conflicts
-            for (String str : pack.getConflicts()) {
-                repoMap.get(pack.getName()).get(pack.getVersion()).conflicts.addAll(new ArrayList<>(findMatchingPackagesInMap(str)));
-            }
+            repoMap.get(pack.getName()).get(pack.getVersion()).prerequisite = makeIntoOrList(prerequisite);
         }
 //        System.out.println(repoMap);
     }
@@ -96,13 +92,13 @@ public class Main {
     /*
     Transform dependencies from [[A or B] and [C or D]] to [[A and C] or [A and D] or [B and C] or [B and D]]
      */
-    private List<Dependency> makeIntoOrList(Pack parentPack, List<List<Pack>> prerequisite) {
+    private List<Dependency> makeIntoOrList(List<List<Pack>> prerequisite) {
         List<Dependency> updatedPrerequisite = new ArrayList<>();
 
         int currentSize;
         for (List<Pack> andList : prerequisite) {
             if (updatedPrerequisite.size() == 0) {
-                for (Pack pack : andList) updatedPrerequisite.add(new Dependency(parentPack, pack));
+                for (Pack pack : andList) updatedPrerequisite.add(new Dependency(pack));
             } else {
                 currentSize = updatedPrerequisite.size();
                 for (int i = 0; i < andList.size() - 1; i++) {
@@ -120,24 +116,29 @@ public class Main {
     Given an expression such as "A>=3", finds all the matching packages in the repoMap
      */
     private List<Pack> findMatchingPackagesInMap(String str) {
-        if (str.contains(">=")) {
-            String[] split = str.split(">=");
-            return repoMap.get(split[0]).values().stream().filter(p -> compareVersions(p.version, ">=", split[1])).collect(Collectors.toList());
-        } else if (str.contains("<=")) {
-            String[] split = str.split("<=");
-            return repoMap.get(split[0]).values().stream().filter(p -> compareVersions(p.version, "<=", split[1])).collect(Collectors.toList());
-        } else if (str.contains("=")) {
-            String[] split = str.split("=");
-            List<Pack> lk = new ArrayList<>();
-            lk.add(repoMap.get(split[0]).get(split[1]));
-            return lk;
-        } else if (str.contains(">")) {
-            String[] split = str.split(">");
-            return repoMap.get(split[0]).values().stream().filter(p -> compareVersions(p.version, ">", split[1])).collect(Collectors.toList());
-        } else if (str.contains("<")) {
-            String[] split = str.split("<");
-            return repoMap.get(split[0]).values().stream().filter(p -> compareVersions(p.version, "<", split[1])).collect(Collectors.toList());
-        } else return new ArrayList<>(repoMap.get(str).values());
+        try {
+            if (str.contains(">=")) {
+                String[] split = str.split(">=");
+                return repoMap.get(split[0]).values().stream().filter(p -> compareVersions(p.version, ">=", split[1])).collect(Collectors.toList());
+            } else if (str.contains("<=")) {
+                String[] split = str.split("<=");
+                return repoMap.get(split[0]).values().stream().filter(p -> compareVersions(p.version, "<=", split[1])).collect(Collectors.toList());
+            } else if (str.contains("=")) {
+                String[] split = str.split("=");
+                List<Pack> lk = new ArrayList<>();
+                lk.add(repoMap.get(split[0]).get(split[1]));
+                return lk;
+            } else if (str.contains(">")) {
+                String[] split = str.split(">");
+                return repoMap.get(split[0]).values().stream().filter(p -> compareVersions(p.version, ">", split[1])).collect(Collectors.toList());
+            } else if (str.contains("<")) {
+                String[] split = str.split("<");
+                return repoMap.get(split[0]).values().stream().filter(p -> compareVersions(p.version, "<", split[1])).collect(Collectors.toList());
+            } else return new ArrayList<>(repoMap.get(str).values());
+        } catch (NullPointerException ex) {
+            // This is here cause sometimes packages depend on packages that don't exist
+            return new ArrayList<>();
+        }
     }
 
     /*
@@ -156,7 +157,6 @@ public class Main {
     public void start() {
         packagesToInstall = new Stack<>();
         installedPackages = new Stack<>();
-        List<Solution> solutions = new ArrayList<>();
         Solution bestSolution = null;
 
         // Make the constraints into a list of dependencies
@@ -164,7 +164,7 @@ public class Main {
         constraints.stream()
                 .filter(c -> c.startsWith("+"))
                 .forEach(c -> constraintsList.add(new ArrayList<>(findMatchingPackagesInMap(c.substring(1)))));
-        List<Dependency> constraintsDependency = makeIntoOrList(null, constraintsList);
+        List<Dependency> constraintsDependency = makeIntoOrList(constraintsList);
 
         // Try to find a solution for every constraint combination and keep the best
         for (int i = 0; i < constraintsDependency.size(); i++) {
@@ -178,7 +178,6 @@ public class Main {
             if (installedPackages.containsAll(dep.packList)) {
                 Solution sol = getSolutionFromPackageList();
                 if (bestSolution == null || sol.cost < bestSolution.cost) bestSolution = sol;
-                solutions.add(sol);
             }
             // Clear installedPackages for other solutions
             installedPackages.forEach(p -> p.isInstalled = false);
@@ -210,7 +209,6 @@ public class Main {
         }
         // Check if this package has any uninstalled dependencies, if it doesn't, install it
         if (pack.prerequisite.size() == 0 || pack.prerequisite.stream().anyMatch(Dependency::checkIfSatisfied)) {
-            if (pack.prerequisite.size() == 0) pack.allDependenciesTried = true;
             installPackage(packagesToInstall.pop());
             return;
         }
@@ -223,7 +221,6 @@ public class Main {
             untriedDep.get().hasBeenTried = currentIteration;
         } else {
             // We've tried every dependency for this package
-            pack.allDependenciesTried = true;
             packagesToInstall.pop();
         }
     }
@@ -325,7 +322,6 @@ public class Main {
         List<Pack> conflicts;
         List<Pack> packagesInstalledForIt; // List of packages installed in order to install this one
         boolean isInstalled = false; // Used to check conflicts
-        boolean allDependenciesTried = false;
 
         private Pack(String name, String version, int size) {
             this.name = name;
@@ -349,17 +345,14 @@ public class Main {
      */
     private class Dependency {
         private List<Pack> packList;
-//        boolean hasBeenTried = false; // keeping track of whether or not we tried this dependency already
         int hasBeenTried = -1; // Has been tried is a number so that I don't have to recursively reset it after trying one set of constraints
-        Pack belongsTo;
 
-        private Dependency(Pack parentPack, Pack... packs) {
-            belongsTo = parentPack;
+        private Dependency(Pack... packs) {
             packList = new ArrayList<>(Arrays.asList(packs));
         }
 
         private Dependency cloneDep() {
-            Dependency dep = new Dependency(belongsTo);
+            Dependency dep = new Dependency();
             dep.packList = new ArrayList<>(packList);
             dep.hasBeenTried = hasBeenTried;
             return dep;
