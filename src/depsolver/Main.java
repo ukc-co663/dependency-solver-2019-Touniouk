@@ -195,9 +195,7 @@ public class Main {
                 .forEach(c -> packagesToUninstall.addAll(findMatchingPackagesInMap(c.substring(1))));
         assert bestSolution != null;
         StringBuilder strBld = new StringBuilder(bestSolution.jsonSolution);
-        packagesToUninstall.forEach(p -> {
-            strBld.insert(strBld.length()-2, ",\n\"-" + p.name + "=" + p.version + "\"");
-        });
+        packagesToUninstall.forEach(p -> strBld.insert(strBld.length()-2, ",\n\"-" + p.name + "=" + p.version + "\""));
         bestSolution.jsonSolution = strBld.toString();
 
         System.out.println(bestSolution.jsonSolution);
